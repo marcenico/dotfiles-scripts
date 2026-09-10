@@ -100,3 +100,67 @@ gcommit() {
   before being sent to Claude (to avoid exceeding Windows command line limits).
 - When confirming with `e`/`edit`, you can manually rewrite the subject and
   body of the commit before applying it.
+
+## commit-ai-lazygit
+
+**`commit-ai-lazygit.sh`** integrates the same AI commit message generation
+into [lazygit](https://github.com/jesseduffield/lazygit) as a custom command.
+
+Unlike `commit-ai.sh`, this script does not stage files, does not commit, and
+does not ask for confirmation — it only generates message **candidates** from
+the already-staged diff and prints them to stdout so lazygit can show them as
+a selectable menu.
+
+For each candidate it writes the full commit message (subject + optional
+body) to a temp file and prints a line in the form:
+
+```
+<index>|<subject>|<path to temp file>
+```
+
+This is meant to be used from lazygit's `menuFromCommand` prompt: each line
+becomes a menu entry (subject as the label), and the chosen path is passed to
+`git commit -F <path>`, so the final commit can include a full multi-line
+body — something a plain `git commit -m "<line>"` can't do.
+
+### Usage (standalone, for testing)
+
+```bash
+./commit-ai-lazygit.sh
+./commit-ai-lazygit.sh --language es --count 5
+```
+
+**Flags:**
+
+| Flag                 | Default   | Description                                                |
+|----------------------|-----------|-------------------------------------------------------------|
+| `--max-diff-chars`   | `10000`   | Truncates the diff sent to Claude to N characters.           |
+| `--model`            | `sonnet`  | Claude model to use.                                          |
+| `--language`         | `en`      | Language for the generated messages: `en` or `es`.           |
+| `--count`            | `3`       | Number of commit message candidates to generate.             |
+
+### lazygit configuration
+
+Add a `customCommands` entry to lazygit's `config.yml` to bind this script to
+a key (e.g. `<c-a>`) in the files panel:
+
+```yaml
+customCommands:
+  - key: "<c-a>"
+    description: "AI commit (Claude)"
+    context: "files"
+    command: 'git commit -F "{{ .Form.Msg }}"'
+    loadingText: "Generating commit message with Claude..."
+    prompts:
+      - type: "menuFromCommand"
+        title: "Choose a commit message"
+        key: "Msg"
+        command: "bash /home/marce/dotfiles-scripts/commit-ai-lazygit.sh"
+        filter: '(?P<idx>[0-9]+)\|(?P<subject>[^|]*)\|(?P<path>.*)'
+        valueFormat: "{{ .path }}"
+        labelFormat: "{{ .idx }}. {{ .subject | yellow }}"
+```
+
+With this, stage the files you want (space bar), press `<c-a>`, pick one of
+the generated candidates from the menu, and lazygit will commit using that
+message's full subject + body via `git commit -F`.
